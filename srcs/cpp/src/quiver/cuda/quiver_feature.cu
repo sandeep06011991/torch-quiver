@@ -256,8 +256,9 @@ class ShardTensor
         torch::zeros((100,100),torch::KF32);
         */
         bool microprofile = false;
+        cudaEvent_t e[6];
         if(microprofile) {
-            cudaEvent_t e[6];
+
             for (int i = 0; i < 6; i++) { cudaEventCreate(&e[i]); }
         }
         if(microprofile)cudaEventRecord(e[0]);
