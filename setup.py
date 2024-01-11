@@ -7,8 +7,9 @@ from torch.utils import cpp_extension
 
 def find_cuda():
     # TODO: find cuda
-    return '/usr/local/cuda'
-
+    path = os.getenv('CUDA_HOME')
+    assert path != ""
+    return path
 
 def have_cuda():
     if os.getenv('QUIVER_ENABLE_CUDA') == 1: return True

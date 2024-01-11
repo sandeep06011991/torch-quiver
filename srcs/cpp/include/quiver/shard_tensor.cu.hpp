@@ -57,6 +57,50 @@ __global__ void quiver_tensor_gather(float **dev_ptrs, const int64_t *offsets,
     }
 }
 
+__global__ void quiver_tensor_gather_overhead(float **dev_ptrs, const int64_t *offsets,
+                                     const int device_count,
+                                     const int64_t *indices, int indice_length,
+                                     float *res, const int stride,
+                                     const int *access_book,
+                                     const int ignore_access_book, int WARP_SIZEX){
+
+    //
+    unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int step = gridDim.x * blockDim.x;
+
+    // each warp take charge of one-feature copy
+    unsigned int warp_id = tid / WARP_SIZEX;
+    unsigned int warp_step = step / WARP_SIZEX;
+
+    unsigned int warp_start = warp_id;
+    unsigned int thread_start = tid % WARP_SIZEX;
+
+    int64_t dev_index = 0;
+    int64_t dev_offset = 0;
+    float *dev_ptr;
+    int64_t src_copy_start = 0;
+    int64_t dst_copy_start = 0;
+
+    unsigned int local_start = thread_start;
+    while (warp_start < indice_length) {
+        local_start = thread_start;
+        dev_index = find(offsets, device_count, indices[warp_start]);
+        // we only copy data from reachable device
+        if (ignore_access_book || access_book[dev_index] == 1) {
+            dev_ptr = dev_ptrs[dev_index];
+            dev_offset = indices[warp_start] - offsets[dev_index];
+            src_copy_start = dev_offset * stride;
+            dst_copy_start = warp_start * stride;
+            for (; local_start < stride; local_start += WARP_SIZEX) {
+                res[dst_copy_start + local_start] =
+                    dev_ptr[src_copy_start + local_start];
+            }
+        }
+        warp_start += warp_step;
+    }
+}
+
+
 __global__ void
 quiver_tensor_gather_aligned(float **dev_ptrs, const int64_t *offsets,
                              const int device_count, const int64_t *indices,
