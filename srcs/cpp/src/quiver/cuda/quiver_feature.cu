@@ -255,13 +255,7 @@ class ShardTensor
         indice_length, const float* res, const int item_byte_size){
         torch::zeros((100,100),torch::KF32);
         */
-        bool microprofile = false;
-        cudaEvent_t e[6];
-        if(microprofile) {
 
-            for (int i = 0; i < 6; i++) { cudaEventCreate(&e[i]); }
-        }
-        if(microprofile)cudaEventRecord(e[0]);
         int current_device = 0;
         cudaGetDevice(&current_device);
         auto stream = at::cuda::getCurrentCUDAStream();
@@ -292,35 +286,31 @@ class ShardTensor
 
         int blockSize = 0;
         int numBlocks = 0;
-        cudaOccupancyMaxPotentialBlockSize(&numBlocks, &blockSize,
-                                           quiver_tensor_gather);
-        std::cout<<"LOG >>> "<<" numBlocks "<< numBlocks <<" blockSize "<<blockSize<< std::endl;
+
+        int  block_x = 256;
+        int block_y  = 1;
+        int num_feat = stride(0);
+        while (block_x >= 2 * num_feat) {
+            block_x /= 2;
+            block_y *= 2;
+        }
+
+        numBlocks = (indices.numel() + block_y -1 )/block_y;
+        blockSize = block_x * block_y;
+
+//        cudaOccupancyMaxPotentialBlockSize(&numBlocks, &blockSize,
+//                                           quiver_tensor_gather);
         int ignore_access_book = 0;
         if (current_device != device_) { ignore_access_book = 1; }
-        if(microprofile)cudaEventRecord(e[1]);
-        quiver_tensor_gather<<<numBlocks, blockSize, 0, stream>>>(
+        quiver_tensor_gather_overhead<<<numBlocks, blockSize, 0, stream>>>(
             buffers_device, offset_device, offset_list_.size(),
             indices.data_ptr<int64_t>(), indices.numel(), res.data_ptr<float>(),
-            stride(0), access_book_device, ignore_access_book);
-        cudaCheckError();
-        if(microprofile){
-            cudaEventRecord(e[2]);
-            numBlocks = ((indices.numel() -1)/128) + 1;
-            blockSize = 256;
-            quiver_tensor_gather_overhead<<<numBlocks, blockSize, 0, stream>>>(
-                buffers_device, offset_device, offset_list_.size(),
-                indices.data_ptr<int64_t>(), indices.numel(), res.data_ptr<float>(),
-                stride(0), access_book_device, ignore_access_book, 128);
-            cudaCheckError();
-            cudaEventRecord(e[3]);
-            cudaEventSynchronize(e[3]);
-            print_interval("ovehead", e[0], e[1]);
-            print_interval("gather original", e[1], e[2]);
-            print_interval("gather alternative", e[2], e[3]);
-            for(int i = 0; i < 6; i++){
-                cudaEventDestroy(e[i]);
-            }
-        }
+            stride(0), access_book_device, ignore_access_book, block_x);
+
+//        quiver_tensor_gather<<<numBlocks, blockSize, 0, stream>>>(
+//            buffers_device, offset_device, offset_list_.size(),
+//            indices.data_ptr<int64_t>(), indices.numel(), res.data_ptr<float>(),
+//            stride(0), access_book_device, ignore_access_book);
         cudaCheckError();
         return res;
     }
